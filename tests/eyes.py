@@ -90,7 +90,9 @@ def convert_to_openCV_format(face):
 if __name__ == "__main__":
     
     # Open the input movie file
-    input_movie = cv2.VideoCapture("face_only/girl_face_1920_1080_25fps.mp4")
+    input_file = "girl_face_1920_1080_25fps.mp4"
+    
+    input_movie = cv2.VideoCapture("face_only/"+input_file)
     length = int(input_movie.get(cv2.CAP_PROP_FRAME_COUNT))
     
     # Create an output movie file (make sure resolution/frame rate matches input video!)
@@ -102,10 +104,16 @@ if __name__ == "__main__":
     frame_height = eye_crop_width * 2
     framerate = int(input_movie.get(cv2.CAP_PROP_FPS))
     
-    out_movie = cv2.VideoWriter('face_only/output.avi', fourcc, framerate, (frame_width, frame_height))
+    right_file = f'face_only/{input_file}_right.avi'
+    left_file = f'face_only/{input_file}_left.avi'
+    face_file = f'face_only/{input_file}_face.avi'
+    out_movie_right = cv2.VideoWriter(right_file, fourcc, framerate, (frame_width, frame_height))
+    out_movie_left = cv2.VideoWriter(left_file, fourcc, framerate, (frame_width, frame_height))
+    # out_movie_face = cv2.VideoWriter(face_file, fourcc, framerate, (554, 55))
     
     frame_number = 0
     frame_face_objs = []
+    
     if PICKLE_TESTING_ENABLE: # prefill frame
         try:
             with open("face_objs.pkl", "rb") as in_pkl:
@@ -113,9 +121,7 @@ if __name__ == "__main__":
                 frame_face_objs = pickle.load(in_pkl)
         except FileNotFoundError:
             logger.info("=== No pickle")
-                    
-    
-    # while(input_movie.isOpened() and frame_number < 120 ):
+            
     while(input_movie.isOpened()):
         
         # Grab a single frame of video
@@ -140,33 +146,39 @@ if __name__ == "__main__":
             face_obj = DeepFace.extract_faces(img_path=face, detector_backend=detector_backends[0], enforce_detection=False, align=True, expand_percentage=0)
             face_obj = face_obj[0]
             face = convert_to_openCV_format(face_obj["face"])
-            
-        # Crop Eyes
-    
-        right_eye = face_obj["facial_area"]["right_eye"]
-        left_eye = face_obj["facial_area"]["left_eye"]        
-        if right_eye is not None:
-            right_eye_crop = face[ right_eye[0] - eye_crop_width : right_eye[0] + eye_crop_width, \
-                                    right_eye[1] - eye_crop_width : right_eye[1] + eye_crop_width]
-        # if left_eye is not None:
-            # left_eye_crop =  face[ left_eye[1] - eye_crop_width : left_eye[1] + eye_crop_width, \
-            #                         left_eye[0] - eye_crop_width : left_eye[0] + eye_crop_width]
-            
-            # Show each frame
-            # if cv2.waitKey(1000) == ord('q'): break
-            # cv2.imshow('frame', face)
-            # cv2.imshow('frame', frame)
-            # cv2.imshow('frame', right_eye_crop)
-            
-            # Write to output
-            out_movie.write(right_eye_crop)
         
+        # Get Eyes
+        right_eye = face_obj["facial_area"]["right_eye"]
+        left_eye = face_obj["facial_area"]["left_eye"]
+        
+        # Skip outputting if face detection failed on frame
+        if right_eye is None or left_eye is None: continue
+        
+        # Crop Eyes
+        right_eye_crop = face[ right_eye[0] - eye_crop_width : right_eye[0] + eye_crop_width, \
+                                right_eye[1] - eye_crop_width : right_eye[1] + eye_crop_width]
+        left_eye_crop =  face[ left_eye[1] - eye_crop_width : left_eye[1] + eye_crop_width, \
+                                left_eye[0] - eye_crop_width : left_eye[0] + eye_crop_width]
+        
+        # Show each frame
+        # if cv2.waitKey(1000) == ord('q'): break
+        # cv2.imshow('frame', face)
+        # cv2.imshow('frame', frame)
+        # cv2.imshow('frame', right_eye_crop)
+        
+        # Write to outputs
+        out_movie_right.write(right_eye_crop)
+        out_movie_left.write(left_eye_crop)
+        # out_movie_face.write(face)
+    
+    # Write to pickle
     if PICKLE_TESTING_ENABLE and not os.path.isfile("face_objs.pkl"): # Write out frame_face_objs
         with open("face_objs.pkl", "wb") as out_pkl:
             pickle.dump(frame_face_objs, out_pkl, -1)
         
     # Clean up
     input_movie.release()
-    out_movie.release()
+    out_movie_right.release()
+    out_movie_left.release()
     cv2.destroyAllWindows()
     
