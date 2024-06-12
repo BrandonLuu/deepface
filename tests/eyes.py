@@ -6,6 +6,7 @@ import os
 import cv2
 import numpy as np
 import random
+from pathlib import Path
 
 # project dependencies
 from deepface import DeepFace
@@ -76,9 +77,10 @@ def extract_and_output_eyes(input_file):
     framerate = int(input_movie.get(cv2.CAP_PROP_FPS))
 
     # Create Output movies
-    right_file = os.path.join(os.getcwd(), "face_only", f'{input_vid}_right.mp4')
-    left_file = os.path.join(os.getcwd(), "face_only", f'{input_vid}_left.mp4')
-    rand_file = os.path.join(os.getcwd(), "face_only", f'{input_vid}_rand.mp4')
+    input_vid_filename = Path(input_vid).stem
+    right_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_right.mp4')
+    left_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_left.mp4')
+    rand_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_rand.mp4')
     out_movie_right = cv2.VideoWriter(right_file, fourcc, framerate, (frame_width, frame_height))
     out_movie_left = cv2.VideoWriter(left_file, fourcc, framerate, (frame_width, frame_height))
     out_movie_rand = cv2.VideoWriter(rand_file, fourcc, framerate, (frame_width, frame_height))
