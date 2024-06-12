@@ -13,6 +13,8 @@ from deepface.commons import logger as log
 
 # Pickle testing flag to skip face analysis
 PICKLE_TESTING_ENABLE = True
+FLIP_RIGHT_EYE_X_Y = False # Changes R eye cropping coordinates - creates a jumping/flickering effect on video
+TWO_PASS_EXTRACTION = False # Double extract for resolution loss(?) - some cropping from double normalization of face
 
 logger = log.get_singletonish_logger()
 
@@ -42,12 +44,6 @@ detector_backends = [
     # "centerface",
 ]
 
-# represent
-# for model_name in model_names:
-#     embedding_objs = DeepFace.represent(img_path="dataset/img1.jpg", model_name=model_name)
-#     for embedding_obj in embedding_objs:
-#         embedding = embedding_obj["embedding"]
-#         logger.info(f"{model_name} produced {len(embedding)}D vector")
 
 def cv_show_wrapper(out_frame):
     if cv2.waitKey(0) == ord('q'): return True
@@ -74,7 +70,7 @@ def extract_and_output_eyes(input_file):
     
     # frame_width = 555 # normalized face image is (height=554, width=555)
     # frame_height = 554
-    eye_crop_width = 100
+    eye_crop_width = 50
     frame_width = eye_crop_width * 2
     frame_height = eye_crop_width * 2
     framerate = int(input_movie.get(cv2.CAP_PROP_FPS))
@@ -125,17 +121,19 @@ def extract_and_output_eyes(input_file):
             face_obj = DeepFace.extract_faces(img_path=frame, detector_backend=detector_backends[0], align=True, expand_percentage=0)
             face_obj = face_obj[0]
             frame_face_objs.append(face_obj["facial_area"])
-            # frame_face_objs[frame_number]["right"/"left"]
+
         elif not os.path.isfile("face_objs.pkl"):
             # 1st Pass: Create normalized face
             face_obj = DeepFace.extract_faces(img_path=frame, detector_backend=detector_backends[0],enforce_detection=False, align=True, expand_percentage=0)
             face_obj = face_obj[0] # HARDCODE: processing only 1st detected face
-            # face = convert_to_openCV_format(face_obj["face"]) # Convert to image for re-extraction
+            if TWO_PASS_EXTRACTION:
+                face = convert_to_openCV_format(face_obj["face"]) # Convert to image for re-extraction
         
-            # # 2st Pass: process Eyes of normalized face with adjusted Eye coordinates
-            # face_obj = DeepFace.extract_faces(img_path=face, detector_backend=detector_backends[0], enforce_detection=False, align=True, expand_percentage=0)
-            # face_obj = face_obj[0]# HARDCODE: processing only 1st detected face
-            # face = convert_to_openCV_format(face_obj["face"])# Convert to image for outputting
+                # 2st Pass: process Eyes of normalized face with adjusted Eye coordinates
+                face_obj = DeepFace.extract_faces(img_path=face, detector_backend=detector_backends[0], enforce_detection=False, align=True, expand_percentage=0)
+                face_obj = face_obj[0]# HARDCODE: processing only 1st detected face
+                face = convert_to_openCV_format(face_obj["face"])# Convert to image for outputting
+
         else:
             # logger.info("reading from pickle")
             face_obj["facial_area"] = frame_face_objs[frame_number-1]
@@ -148,17 +146,18 @@ def extract_and_output_eyes(input_file):
         # Skip outputting if face detection failed on frame
         if right_eye is None or left_eye is None: continue
 
-        # Crop Eyes - switching right_eye [1] or [0] will give a jumping flickering output
-        # right_eye_crop = face[right_eye[1] - eye_crop_width : right_eye[1] + eye_crop_width,
-        #                       right_eye[0] - eye_crop_width : right_eye[0] + eye_crop_width]
-        # left_eye_crop = face[left_eye[1] - eye_crop_width : left_eye[1] + eye_crop_width,
-        #                      left_eye[0] - eye_crop_width : left_eye[0] + eye_crop_width]
-        
-        # Crop Eyes - Correctly indexed
-        right_eye_crop = frame[right_eye[1] - eye_crop_width : right_eye[1] + eye_crop_width,
-                              right_eye[0] - eye_crop_width : right_eye[0] + eye_crop_width]
-        left_eye_crop = frame[left_eye[1] - eye_crop_width : left_eye[1] + eye_crop_width,
-                             left_eye[0] - eye_crop_width : left_eye[0] + eye_crop_width]
+        if FLIP_RIGHT_EYE_X_Y:
+            # Crop Eyes - switching right_eye [1] or [0] will give a jumping flickering output
+            right_eye_crop = face[right_eye[1] - eye_crop_width : right_eye[1] + eye_crop_width,
+                                right_eye[0] - eye_crop_width : right_eye[0] + eye_crop_width]
+            left_eye_crop = face[left_eye[1] - eye_crop_width : left_eye[1] + eye_crop_width,
+                                left_eye[0] - eye_crop_width : left_eye[0] + eye_crop_width]
+        else:
+            # Crop Eyes - Correctly indexed
+            right_eye_crop = frame[right_eye[1] - eye_crop_width : right_eye[1] + eye_crop_width,
+                                right_eye[0] - eye_crop_width : right_eye[0] + eye_crop_width]
+            left_eye_crop = frame[left_eye[1] - eye_crop_width : left_eye[1] + eye_crop_width,
+                                left_eye[0] - eye_crop_width : left_eye[0] + eye_crop_width]
 
         # Show each frame
         # frame = cv2.circle(frame, right_eye, 5, (0,0,255), 5 )
@@ -167,7 +166,6 @@ def extract_and_output_eyes(input_file):
         # cv2.imshow('frame', comparison_img)
         
         # cv_show_wrapper(right_eye_crop)
-        
 
         # Write to outputs
         out_movie_right.write(right_eye_crop)
@@ -175,18 +173,19 @@ def extract_and_output_eyes(input_file):
 
         # # Random frame write
         rand_eye = right_eye_crop if eye_choice == "right" else left_eye_crop
-        switch = random.randint(1, 4)
+        switch = random.randint(1, 2)
         if switch == 1:  # chance to flip the eye output
             if eye_choice == "right":
-                print("switching to left")
+                # print("switching to left")
                 rand_eye = left_eye_crop
                 eye_choice = "left"
             else:
-                print("switching to right")
+                # print("switching to right")
                 rand_eye = right_eye_crop
                 eye_choice = "right"
 
         out_movie_rand.write(rand_eye)
+
 
     # Write to pickle if no pickle created yet
     if PICKLE_TESTING_ENABLE and not os.path.isfile("face_objs.pkl"):
