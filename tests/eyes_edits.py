@@ -11,10 +11,12 @@ from deepface.commons import logger as log
 
 logger = log.get_singletonish_logger()
 
+# Output Dimensions
 out_width = 200
 out_height = 200
 
 
+# === OpenCV Utility Functions ===
 def convert_to_openCV_format(img):
     # Scale float64(0-1) to uint8(0-255), then convert RGB image to BGR for openCV
     img = 255 * img
@@ -22,17 +24,29 @@ def convert_to_openCV_format(img):
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     return img
 
-
 def cv_show_wrapper(out_frame):
     if cv2.waitKey(0) == ord('q'): return True
     cv2.imshow('frame', out_frame)
     return False
-        
+
+# === Editing Functions ===
+def generate_grid(rows, cols, max_rand_val):
+    grid = np.ndarray((rows,cols), dtype=int)
+    row, col = grid.shape
+    for i in range(row):
+        for j in range(col):
+            grid[i][j] = random.randint(0, max_rand_val)
+    return grid
+
+
+def print_grid(grid):
+    for row in grid:
+        print(row)
+
 
 def overlay_image_random(out_image, top_image, bound_x, bound_y):
-    overlay_image(out_image, top_image, 
-                  random.randint(bound_x, bound_y),
-                  random.randint(bound_x, bound_y))
+    overlay_image(out_image, top_image, random.randint(bound_x, bound_y),
+                                        random.randint(bound_x, bound_y))
 
 
 def overlay_image(out_image, top_image, start_x, start_y):
@@ -67,15 +81,32 @@ def change_background(out_frame, in_frame):
         overlay_image(out_frame, resize_frame, 0, 0)
         
     elif bg_select == 2: # np resize 75% - stutter tile
-        resize_frame = np.resize(in_frame, (int(out_height * 0.75), int(out_width * 0.75), 3))
+        resize_percentage = 0.75
+        resize_frame = np.resize(in_frame, (int(out_height * resize_percentage), int(out_width * resize_percentage), 3))
         resize_frame = cv2.resize(resize_frame, (out_height, out_width), interpolation = cv2.INTER_LINEAR)
         overlay_image(out_frame, resize_frame, 0, 0)
-        # if cv_show_wrapper(out_frame): break
+        # cv_show_wrapper(out_frame)
 
-    else: 
-        # Stretch 2x to match output
-        out_frame = cv2.resize(in_frame, None, fx = 2, fy = 2, interpolation = cv2.INTER_CUBIC)
+    else: # Default - scale to frame
+        in_width, in_height, in_rgb = in_frame.shape
+        scale_x, scale_y = (out_width / in_width),  (out_height / in_height)
+        out_frame = cv2.resize(in_frame, None, fx = scale_x, fy = scale_y, interpolation = cv2.INTER_CUBIC)
+
+
+def get_rand_eye_choice(eye_choice, ret, total_outcomes):
+    # Random eye frame write - read/write from eye_choice
+    if random.randint(1, total_outcomes) == 1:  # flip to other eye if success and other eye has frames
+        eye_choice = "right" if eye_choice == "left" else "left"
+        # logger.info(f"Eye selected: {eye_choice}")
     
+    # Valid frame check - change choice if frame invalid
+    if ret["right"] == False:
+        eye_choice = "left"
+    elif ret["left"] == False:
+        eye_choice = "right"
+    elif ret["right"] == False and ret["left"] == False: # error: both eyes have empty frames
+        raise ValueError("Error: both eyes have ret values of False")
+
 
 def edit_eyes(in_right_file, in_left_file):
     # Open the input movie file
@@ -85,13 +116,13 @@ def edit_eyes(in_right_file, in_left_file):
     length_left = int(in_movie_left.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Configure output movie file (make sure resolution/frame rate matches input video!)
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')  # type: ignore
-    frame_width = out_width # TODO: this has to be configurable to match the frame compositor?
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # type: ignore
+    frame_width = out_width
     frame_height = out_height
     framerate = int(in_movie_right.get(cv2.CAP_PROP_FPS)) # TODO: how to output/respeed in/out framerate
 
     # Create Output movies
-    out_file = os.path.join(os.getcwd(), "face_only", "right-left-edit","edit.avi")
+    out_file = os.path.join(os.getcwd(), "face_only", "right-left-edit", "edit.mp4")
     out_movie = cv2.VideoWriter(out_file, fourcc, framerate, (frame_width, frame_height))
 
     logger.info(f"Outfile: {out_file}")
@@ -100,11 +131,12 @@ def edit_eyes(in_right_file, in_left_file):
     frame_number = 0
     eye_choice = "right"
     
-    x_offset_right = random.randint(-75,275) # TODO: percentage of frame wd/ht
-    y_offset_right = random.randint(-75,275)
-    
-    x_offset_left = random.randint(-75,275)
-    y_offset_left = random.randint(-75,275)
+    # Random video overlay offset ranges init
+    offset_percentage = 0.75
+    offset_x = int(-(out_width * offset_percentage))
+    offset_y = int(out_height + (out_height * offset_percentage))
+    x_offset_right, y_offset_right = random.randint(offset_x, offset_y), random.randint(offset_x, offset_y)
+    x_offset_left, y_offset_left = random.randint(offset_x, offset_y), random.randint(offset_x, offset_y)    
     
     # Processing Loop
     while frame_number<100 and (in_movie_right.isOpened() or in_movie_left.isOpened()):
@@ -113,66 +145,41 @@ def edit_eyes(in_right_file, in_left_file):
 
         # Read a single frame of video
         frame_number += 1
-        in_frame = {}
-        ret_right, in_frame["right"] = in_movie_right.read()
-        ret_left, in_frame["left"] = in_movie_left.read()
+        ret, in_frame = {}, {}
+        ret["right"], in_frame["right"] = in_movie_right.read()
+        ret["left"], in_frame["left"] = in_movie_left.read()
         
-        if frame_number % 10 == 0:
+        if frame_number % 25 == 0:
             logger.info(f"Processing frame {frame_number} / R:{length_right} | L:{length_left} ")
         
         # Quit when the input video file ends
-        if ret_right is False and ret_left is False:
+        if ret["right"] == False and ret["left"] == False:
             break
 
-        # Random frame write
-        if random.randint(1, 4) == 1:  # flip to other eye if success and other eye has frames
-            eye_choice = "right" if eye_choice == "left" else "left"
-            # logger.info(f"Eye selected: {eye_choice}")
+        get_rand_eye_choice(eye_choice, ret, total_outcomes=4)
         
-        # Valid frame check - change choice if frame invalid
-        if ret_right == False:
-            eye_choice = "left"
-        elif ret_left == False:
-            eye_choice = "right"
-        
-        
-        # Random offset changes
+        # Random eye offset changes
         if random.randint(1, 4) == 1:
-            x_offset_right = random.randint(-75,275)
-            y_offset_right = random.randint(-75,275)
+            x_offset_right, y_offset_right = random.randint(offset_x, offset_y), random.randint(offset_x, offset_y)
             # logger.info(f"R Moving {x_offset_right}, {y_offset_right}")
         if random.randint(1, 4) == 1:
-            x_offset_left = random.randint(-75,275)
-            y_offset_left = random.randint(-75,275)
+            x_offset_left, y_offset_left = random.randint(offset_x, offset_y), random.randint(offset_x, offset_y)
             # logger.info(f"L Moving {x_offset_left}, {y_offset_left}")
         
         
-        # Background select
-        # bg_select = random.randint(1,10)
-        # if bg_select == 1:
-        #     # Whacky frame tile code
-        #     resize_frame = np.resize(in_frame[eye_choice], (200,200,3))
-        #     resize_frame = cv2.resize(resize_frame, (200,200), interpolation = cv2.INTER_LINEAR)
-        #     overlay_image(out_frame, resize_frame, 0, 0)
-        # elif bg_select == 2:
-        #     resize_frame = np.resize(in_frame[eye_choice], (150,150,3))
-        #     resize_frame = cv2.resize(resize_frame, (200,200), interpolation = cv2.INTER_LINEAR)
-        #     overlay_image(out_frame, resize_frame, 0, 0)
-        #     # if cv_show_wrapper(out_frame): break
-        # else:
-        #     # Stretch 2x to match output
-        #     out_frame = cv2.resize(in_frame[eye_choice], None, fx = 2, fy = 2, interpolation = cv2.INTER_CUBIC)
-        
+        # Change background or fullscreen an eye
         if random.randint(1,4) == 1:
             change_background(out_frame, in_frame[eye_choice])
         else:
-            out_frame = cv2.resize(in_frame[eye_choice], None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+            in_width, in_height, in_rgb = in_frame[eye_choice].shape
+            scale_x, scale_y = (out_width / in_width),  (out_height / in_height)
+            out_frame = cv2.resize(in_frame[eye_choice], None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_CUBIC)
 
 
         # Overlay Right/Left Eyes
-        if ret_right:
+        if ret["right"]:
             overlay_image(out_frame, in_frame["right"], x_offset_right, y_offset_right)
-        if ret_left:
+        if ret["left"]:
             overlay_image(out_frame, in_frame["left"], x_offset_left, y_offset_left)
         
         # Show each frame
