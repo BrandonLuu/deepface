@@ -226,6 +226,10 @@ def edit_grid_eyes(in_right_file, in_left_file):
         if ret["right"] == False or ret["left"] == False:
             break
         
+        # Resize Frame
+        right_frame = cv2.resize(right_frame, (270, 270), interpolation = cv2.INTER_LINEAR)
+        left_frame = cv2.resize(left_frame, (270, 270), interpolation = cv2.INTER_LINEAR)
+        
         # Add to frame list
         in_frame["right"].append(right_frame)
         in_frame["left"].append(left_frame)
@@ -235,21 +239,20 @@ def edit_grid_eyes(in_right_file, in_left_file):
     # for i in range(5, len(in_frame["right"]), 25):
     #     if cv_show_wrapper(in_frame["right"][i]): return
     
+    # Grid Edit
     frame_number = 0
     rows, cols = 5, 4
     offset_grid = generate_grid(rows, cols, 100)
-    # print_grid(offset_grid)
     
     in_len = {}
     in_len["right"] = len(in_frame["right"])
-    # in_left_len = len(in_frame["left"])
+    in_len["left"] = len(in_frame["left"])
     
     width_step = int(frame_width / cols)
     height_step = int(frame_height/ rows)
     logger.info(f"Grid: step size: {width_step} x {height_step}")
     
-    # eye_choice = "right"
-    # while in_movie_right.isOpened or in_movie_left.isOpened:
+    eye_choice = "left"
     for frame_number in range(in_len["right"]):
         out_frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
         logger.info(f"Frame: {frame_number}")
@@ -257,17 +260,16 @@ def edit_grid_eyes(in_right_file, in_left_file):
         # Write all subframes to out_frame
         for i in range(rows):
             for j in range(cols):
-                # TODO: add random R/L flip per cell
+                # TODO: add random R/L flip per cell?
                 # rand_flip_eye_choice(eye_choice, ret, total_outcomes=4)
                 
                 subframe_x, subframe_y = i * width_step, j * height_step
-                subframe_offset = (frame_number + offset_grid[i][j]) % in_len["right"]
+                subframe_offset = (frame_number + offset_grid[i][j]) % in_len[eye_choice]
                 
-                subframe = in_frame["right"][subframe_offset]
-                resize_frame = cv2.resize(subframe, (width_step, height_step), interpolation = cv2.INTER_LINEAR)
-                
+                subframe = in_frame[eye_choice][subframe_offset]
+                # resize_frame = cv2.resize(subframe, (width_step, height_step), interpolation = cv2.INTER_LINEAR)
                 # logger.info(f"Subframe ({i},{j}): Dimension:({subframe_x},{subframe_y}) ")
-                overlay_image(out_frame, resize_frame, subframe_x, subframe_y)
+                overlay_image(out_frame, subframe, subframe_x, subframe_y)
 
         # if cv_show_wrapper(out_frame): return
         out_grid_movie.write(out_frame)

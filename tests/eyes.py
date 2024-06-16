@@ -13,7 +13,7 @@ from deepface import DeepFace
 from deepface.commons import logger as log
 
 # Pickle testing flag to skip face analysis
-PICKLE_TESTING_ENABLE = True
+PICKLE_TESTING_ENABLE = False
 FLIP_RIGHT_EYE_X_Y = False # Changes R eye cropping coordinates - creates a jumping/flickering effect on video
 TWO_PASS_EXTRACTION = False # Double extract for resolution loss(?) - some cropping from double normalization of face
 
@@ -66,26 +66,32 @@ def extract_and_output_eyes(input_file):
     length = int(input_movie.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Configure output movie file (make sure resolution/frame rate matches input video!)
-    # fourcc = cv2.VideoWriter_fourcc(*'XVID')  # type: ignore
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # type: ignore
     
-    # frame_width = 555 # normalized face image is (height=554, width=555)
-    # frame_height = 554
+    # frame_height = 554 # normalized face image is (height=554, width=555)
+    # frame_width = 555 
+    frame_height, frame_width = None, None
     eye_crop_width = 50
-    frame_width = eye_crop_width * 2
-    frame_height = eye_crop_width * 2
+    # frame_width = eye_crop_width * 2
+    # frame_height = eye_crop_width * 2
     framerate = int(input_movie.get(cv2.CAP_PROP_FPS))
 
     # Create Output movies
     input_vid_filename = Path(input_vid).stem
-    right_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_right.mp4')
-    left_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_left.mp4')
-    rand_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_rand.mp4')
-    out_movie_right = cv2.VideoWriter(right_file, fourcc, framerate, (frame_width, frame_height))
-    out_movie_left = cv2.VideoWriter(left_file, fourcc, framerate, (frame_width, frame_height))
-    out_movie_rand = cv2.VideoWriter(rand_file, fourcc, framerate, (frame_width, frame_height))
+    # right_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_right.mp4')
+    # left_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_left.mp4')
+    # rand_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_rand.mp4')
+    face_file = os.path.join(os.getcwd(), "face_only", f'{input_vid_filename}_face.mp4')
+    
+    # out_movie_right = cv2.VideoWriter(right_file, fourcc, framerate, (frame_width, frame_height))
+    # out_movie_left = cv2.VideoWriter(left_file, fourcc, framerate, (frame_width, frame_height))
+    # out_movie_rand = cv2.VideoWriter(rand_file, fourcc, framerate, (frame_width, frame_height))
+    frame_height, frame_width = 462, 462
+    out_movie_face = cv2.VideoWriter(face_file, fourcc, framerate, (frame_height, frame_width))
 
-    logger.info(f"Output: R:{right_file} L:{left_file}")
+
+    # logger.info(f"Output: R:{right_file} L:{left_file}")
+    logger.info(f"Face out: {face_file}")
     
     # Processing variables init
     frame_number = 0
@@ -124,22 +130,24 @@ def extract_and_output_eyes(input_file):
             face_obj = face_obj[0]
             frame_face_objs.append(face_obj["facial_area"])
 
-        elif not os.path.isfile("face_objs.pkl"):
+        elif PICKLE_TESTING_ENABLE and os.path.isfile("face_objs.pkl"):
+            # logger.info("reading from pickle")
+            face_obj["facial_area"] = frame_face_objs[frame_number-1]
+            # cv_show_wrapper(frame_face_objs[frame_number]["right_eye"])
+
+        else: # Not pickling, no file found, run default face extraction
             # 1st Pass: Create normalized face
             face_obj = DeepFace.extract_faces(img_path=frame, detector_backend=detector_backends[0],enforce_detection=False, align=True, expand_percentage=0)
             face_obj = face_obj[0] # HARDCODE: processing only 1st detected face
+            
             if TWO_PASS_EXTRACTION:
                 face = convert_to_openCV_format(face_obj["face"]) # Convert to image for re-extraction
-        
                 # 2st Pass: process Eyes of normalized face with adjusted Eye coordinates
                 face_obj = DeepFace.extract_faces(img_path=face, detector_backend=detector_backends[0], enforce_detection=False, align=True, expand_percentage=0)
                 face_obj = face_obj[0]# HARDCODE: processing only 1st detected face
                 face = convert_to_openCV_format(face_obj["face"])# Convert to image for outputting
 
-        else:
-            # logger.info("reading from pickle")
-            face_obj["facial_area"] = frame_face_objs[frame_number-1]
-            # cv_show_wrapper(frame_face_objs[frame_number]["right_eye"])
+
             
         # Get Eyes
         right_eye = face_obj["facial_area"]["right_eye"]
@@ -167,13 +175,12 @@ def extract_and_output_eyes(input_file):
         # comparison_img = np.hstack((cv2.resize(frame, (400,400)), cv2.resize(right_eye_crop, (400,400))))
         # cv2.imshow('frame', comparison_img)
         
-        # cv_show_wrapper(right_eye_crop)
+        # if cv_show_wrapper(right_eye_crop): return
+        frame_face = convert_to_openCV_format(face_obj["face"])
+        # if cv_show_wrapper(frame_face): return
+        # print(face_obj["face"].shape)
 
-        # Write to outputs
-        out_movie_right.write(right_eye_crop)
-        out_movie_left.write(left_eye_crop)
-
-        # # Random frame write
+        # Random frame write
         rand_eye = right_eye_crop if eye_choice == "right" else left_eye_crop
         switch = random.randint(1, 2)
         if switch == 1:  # chance to flip the eye output
@@ -186,7 +193,18 @@ def extract_and_output_eyes(input_file):
                 rand_eye = right_eye_crop
                 eye_choice = "right"
 
-        out_movie_rand.write(rand_eye)
+        # Configure output movie after getting face size
+        if frame_height is None and frame_width is None:
+            frame_height, frame_width, _ = face_obj["face"].shape
+            # out_movie_face = cv2.VideoWriter(face_file, fourcc, framerate, (frame_height, frame_width))
+            logger.info(f"Setting {frame_height}, {frame_width}")
+        
+
+        # ===  Write to outputs ===
+        # out_movie_right.write(right_eye_crop)
+        # out_movie_left.write(left_eye_crop)
+        # out_movie_rand.write(rand_eye)
+        out_movie_face.write(frame_face)
 
 
     # Write to pickle if no pickle created yet
@@ -196,19 +214,28 @@ def extract_and_output_eyes(input_file):
 
     # Clean up
     input_movie.release()
-    out_movie_right.release()
-    out_movie_left.release()
+    # out_movie_right.release()
+    # out_movie_left.release()
+    # out_movie_rand.release()
+    out_movie_face.release()
 
 
 if __name__ == "__main__":
     logger.info("=== Beginning Eyes Processing ===")
     
     # Input file path
-    input_vid = "girl_face_1920_1080_25fps.mp4"
-    face_dir = os.path.join(os.getcwd(), 'face_only')
-    input_file = os.path.join(face_dir, input_vid)
-    logger.info("Extracting eyes of file: " + input_file)
+    # input_vid = "girl_face_1920_1080_25fps.mp4"
+    # input_vid = "girl_hand_2160_4096_25fps.mp4"
+    input_vids = []
+    # input_vids.append("girl_face_1920_1080_25fps.mp4")
+    # input_vids.append("g2_4096_2160_25fps.mp4")
+    input_vids.append("6968214-hd_1920_1080_25fps.mp4")
     
-    extract_and_output_eyes(input_file)
-    
+    for input_vid in input_vids:
+        face_dir = os.path.join(os.getcwd(), 'face_only')
+        input_file = os.path.join(face_dir, input_vid)
+        logger.info("Extracting eyes of file: " + input_file)
+        
+        extract_and_output_eyes(input_file)
+        
     cv2.destroyAllWindows()
